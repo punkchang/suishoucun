@@ -104,7 +104,7 @@ const handleTagClick = (tag) => {
 
 // 打开笔记（路由跳转）
 const openNote = (note) => {
-  router.push(`/note/${note.slug}`)
+  router.push(`/wiki/${note.slug}`)
 }
 </script>
 

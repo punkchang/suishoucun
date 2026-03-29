@@ -12,7 +12,7 @@ const routes = [
     meta: { title: '收藏夹 - 笔记列表' }
   },
   {
-    path: '/note/:slug',
+    path: '/wiki/:slug',
     name: 'NoteDetail',
     component: NoteDetail,
     props: true,
