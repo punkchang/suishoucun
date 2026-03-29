@@ -187,20 +187,35 @@ const saveNote = async () => {
 
   saving.value = true
   try {
+    console.log('[saveNote] 开始保存，slug:', slug)
+    console.log('[saveNote] 编辑表单数据:', editForm.value)
+    
     const res = await fetch(`/api/wiki/${slug}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(editForm.value)
     })
 
-    if (!res.ok) throw new Error('保存失败')
+    console.log('[saveNote] 响应状态:', res.status, res.statusText)
+    
+    const responseText = await res.text()
+    console.log('[saveNote] 原始响应:', responseText)
+    
+    if (!res.ok) {
+      let errorMsg = '保存失败'
+      try {
+        const errorData = JSON.parse(responseText)
+        errorMsg = errorData.detail || errorData.error || errorMsg
+      } catch {}
+      throw new Error(errorMsg)
+    }
     
     ElMessage.success('笔记已保存')
     isEditMode.value = false
     await fetchNote() // 重新获取最新数据
   } catch (error) {
+    console.error('[saveNote] 错误:', error)
     ElMessage.error(error.message || '保存失败')
-    console.error(error)
   } finally {
     saving.value = false
   }

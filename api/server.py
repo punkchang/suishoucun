@@ -60,13 +60,15 @@ class WikiNoteResponse(BaseModel):
 
 # === Node.js 代码模板 (使用特殊占位符) ===
 
-NODE_WRAPPER_TEMPLATE = """
+NODE_WRAPPER_TEMPLATE = r"""
 const fs = require('fs');
 const path = require('path');
 const { WikiLocal } = require('__WIKI_LOCAL_PATH__');
 
 const wikiDir = '__ARTICLES_DIR__';
 const indexFile = '__INDEX_FILE__';
+const action = process.env.WIKI_ACTION;
+const params = JSON.parse(process.env.WIKI_PARAMS);
 
 // 确保目录存在
 if (!fs.existsSync(wikiDir)) {
@@ -78,9 +80,6 @@ const wiki = new WikiLocal({
     indexFile: indexFile
 });
 
-const action = '__ACTION__';
-const params = JSON.parse('__PARAMS__');
-
 try {
     let result;
     
@@ -89,13 +88,13 @@ try {
             result = wiki.add(params.title, params.content, params.tags || [], params.relatedTo || []);
             const content = wiki.get(result.slug);
             if (content) {
-                const lines = content.split('\\n');
+                const lines = content.split('\n');
                 const title = lines[0].replace('# ', '');
                 const tagLine = lines[1];
                 const relatedLine = lines[2];
                 const tags = tagLine.replace('Tags: ', '').split(', ').filter(t => t);
                 const relatedTo = relatedLine.replace('Related: ', '').split(', ').filter(r => r);
-                const bodyStart = content.indexOf('\\n\\n');
+                const bodyStart = content.indexOf('\n\n');
                 const bodyContent = bodyStart > -1 ? content.substring(bodyStart + 2) : '';
                 result = { ...result, title, tags, relatedTo, content: bodyContent };
             }
@@ -104,13 +103,13 @@ try {
         case 'get':
             const get_content = wiki.get(params.slug);
             if (!get_content) throw new Error('Not found');
-            const get_lines = get_content.split('\\n');
+            const get_lines = get_content.split('\n');
             const get_title = get_lines[0].replace('# ', '');
             const get_tagLine = get_lines[1];
             const get_relatedLine = get_lines[2];
             const get_tags = get_tagLine.replace('Tags: ', '').split(', ').filter(t => t);
             const get_relatedTo = get_relatedLine.replace('Related: ', '').split(', ').filter(r => r);
-            const get_bodyStart = get_content.indexOf('\\n\\n');
+            const get_bodyStart = get_content.indexOf('\n\n');
             const get_bodyContent = get_bodyStart > -1 ? get_content.substring(get_bodyStart + 2) : '';
             result = { slug: params.slug, title: get_title, tags: get_tags, relatedTo: get_relatedTo, content: get_bodyContent };
             break;
@@ -157,43 +156,60 @@ try {
         case 'update':
             const upd_existing = wiki.get(params.slug);
             if (!upd_existing) throw new Error('Not found');
-            const upd_lines = upd_existing.split('\\n');
+            
+            // 正确解析 Markdown 格式：第一行标题，第二行 Tags，第三行 Related，空行后是内容
+            const LF = String.fromCharCode(10);
+            const upd_lines = upd_existing.split(LF);
             let upd_currentTitle = upd_lines[0].replace('# ', '');
-            let upd_currentTags = (upd_lines[1] || 'Tags: ').replace('Tags: ', '').split(', ').filter(t => t);
-            let upd_currentRelatedTo = (upd_lines[2] || 'Related: ').replace('Related: ', '').split(', ').filter(r => r);
-            const upd_bodyStart = upd_existing.indexOf('\\n\\n');
+            let upd_currentTags = [];
+            let upd_currentRelatedTo = [];
+            
+            if (upd_lines[1] && upd_lines[1].startsWith('Tags: ')) {
+                upd_currentTags = upd_lines[1].replace('Tags: ', '').split(', ').filter(t => t);
+            }
+            if (upd_lines[2] && upd_lines[2].startsWith('Related: ')) {
+                upd_currentRelatedTo = upd_lines[2].replace('Related: ', '').split(', ').filter(r => r);
+            }
+            
+            const upd_bodyStart = upd_existing.indexOf(LF + LF);
             let upd_currentContent = upd_bodyStart > -1 ? upd_existing.substring(upd_bodyStart + 2) : '';
             
+            // 应用更新参数
             if (params.title) upd_currentTitle = params.title;
             if (params.tags !== undefined) upd_currentTags = params.tags;
             if (params.relatedTo !== undefined) upd_currentRelatedTo = params.relatedTo;
             if (params.content !== undefined) upd_currentContent = params.content;
             
+            // 删除旧文件，重新创建（使用 wiki.add 会生成新的 slug）
             const upd_oldFile = path.join(wikiDir, params.slug + '.md');
             if (fs.existsSync(upd_oldFile)) fs.unlinkSync(upd_oldFile);
             
             result = wiki.add(upd_currentTitle, upd_currentContent, upd_currentTags, upd_currentRelatedTo);
+            
+            // 提取完整笔记内容（与 add/get case 保持一致）
             const upd_newContent = wiki.get(result.slug);
             if (upd_newContent) {
-                const upd_lines2 = upd_newContent.split('\\n');
+                const upd_lines2 = upd_newContent.split(LF);
                 const upd_title2 = upd_lines2[0].replace('# ', '');
                 const upd_tagLine2 = upd_lines2[1];
                 const upd_relatedLine2 = upd_lines2[2];
                 const upd_tags2 = upd_tagLine2.replace('Tags: ', '').split(', ').filter(t => t);
                 const upd_relatedTo2 = upd_relatedLine2.replace('Related: ', '').split(', ').filter(r => r);
-                const upd_bodyStart2 = upd_newContent.indexOf('\\n\\n');
+                const upd_bodyStart2 = upd_newContent.indexOf(LF + LF);
                 const upd_bodyContent2 = upd_bodyStart2 > -1 ? upd_newContent.substring(upd_bodyStart2 + 2) : '';
                 result = { ...result, title: upd_title2, tags: upd_tags2, relatedTo: upd_relatedTo2, content: upd_bodyContent2 };
             }
+            
             break;
             
         default:
             throw new Error('Unknown action: ' + action);
     }
     
-    console.log(JSON.stringify({ success: true, result }));
+    // 使用 replacer 参数确保所有控制字符被正确转义，并使用 JSON.stringify 的第三个参数格式化输出
+    console.log(JSON.stringify({ success: true, result }, null, 2));
 } catch (error) {
-    console.log(JSON.stringify({ error: error.message }));
+    console.log(JSON.stringify({ error: error.message }, null, 2));
 }
 """
 
@@ -205,9 +221,12 @@ def run_wiki_local(action: str, **kwargs) -> dict:
     node_code = (NODE_WRAPPER_TEMPLATE
         .replace('__WIKI_LOCAL_PATH__', WIKI_LOCAL_PATH)
         .replace('__ARTICLES_DIR__', os.path.join(DATA_ROOT, "articles"))
-        .replace('__INDEX_FILE__', os.path.join(DATA_ROOT, "index.json"))
-        .replace('__ACTION__', action)
-        .replace('__PARAMS__', params_json.replace("'", "'\\''")))
+        .replace('__INDEX_FILE__', os.path.join(DATA_ROOT, "index.json")))
+    
+    # 使用环境变量传递参数，避免 JSON 字符串拼接导致的控制字符问题
+    env = os.environ.copy()
+    env['WIKI_ACTION'] = action
+    env['WIKI_PARAMS'] = params_json
     
     cmd = ["node", "-e", node_code]
     
@@ -216,7 +235,8 @@ def run_wiki_local(action: str, **kwargs) -> dict:
             cmd,
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=30,
+            env=env  # 传递环境变量
         )
         
         output = result.stdout.strip()

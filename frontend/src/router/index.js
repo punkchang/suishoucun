@@ -1,14 +1,14 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 // 懒加载路由（提升首屏性能）
-const Home = () => import('../App.vue')
+const NoteList = () => import('../views/NoteList.vue')
 const NoteDetail = () => import('../views/NoteDetail.vue')
 
 const routes = [
   {
     path: '/',
     name: 'Home',
-    component: Home,
+    component: NoteList,
     meta: { title: '收藏夹 - 笔记列表' }
   },
   {
